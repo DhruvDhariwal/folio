@@ -1,0 +1,6 @@
+po_id,entity_id,vendor_id,currency,approved_net_cap,status,matching_method,project,owner_role
+PO1042,DEMOCO,V001,USD,10000.00,open,two_way,Brand redesign,Procurement owner
+PO1043,DEMOCO,V002,USD,5000.00,open,two_way,Implementation support,Procurement owner
+PO1044,DEMOCO,V001,USD,6000.00,open,two_way,Project Orchard,Procurement owner
+PO1045,DEMOCO,V001,USD,6000.00,open,two_way,Project Willow,Procurement owner
+PO1046,DEMOCO,V003,USD,2500.00,open,three_way,Office equipment,Procurement owner

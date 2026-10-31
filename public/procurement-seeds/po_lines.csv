@@ -1,0 +1,6 @@
+po_id,line_id,kind,description,approved_net_cap,quantity,unit_price,service_period
+PO1042,L1,amount_cap,Brand design services,10000.00,,,2026-10
+PO1043,L1,quantity,Implementation support hours,5000.00,50,100.00,2026-10
+PO1044,L1,amount_cap,Design support for Project Orchard,6000.00,,,2026-10
+PO1045,L1,amount_cap,Design support for Project Willow,6000.00,,,2026-10
+PO1046,L1,quantity,Office desks,2500.00,5,500.00,2026-10

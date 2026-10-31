@@ -1,0 +1,31 @@
+id,group,input_or_action,expected_initial_result,key_assertion
+C01,clean,Native PDF explicit vendor and PO and zero tax,Ready for approval,Reserve supported net once
+C02,clean,Second native layout with line prices and separated tax,Ready for approval,Compare net to net and reconcile gross
+C03,clean,Partial quantity on quantity based PO,Ready for approval,Expected price uses billed quantity rather than full PO quantity
+C04,clean,Positive variance exactly at both applicable limits with sufficient capacity,Ready for approval,Inclusive boundary comparison
+C05,clean,Clear scan with explicit tax and correct identity,Ready for approval,Evidence locations survive scan coordinates
+C06,clean,Clear scan with stated gross and included tax amount,Ready for approval,Derive net from supported operands
+C07,clean,Recurring invoice same amount as prior month but distinct reference and service period,Ready for approval,Equal amount alone does not block
+C08,clean,New held out layout with supported fields,Ready for approval,No filename or template keyed decision
+E01,duplicate,Reissued PDF punctuation changed in reference,Needs review,Show original and candidate without second reservation
+E02,duplicate,Same exact business key but changed total,Blocked,Conflicting revision does not become new obligation
+E03,capacity,7200 committed plus 3100 net against 10000 cap,Blocked,Show 2800 available and 300 deficit
+E04,capacity,PO total fits but selected line cap is exceeded,Blocked,Check line capacity separately
+E05,ambiguity,No PO reference and two plausible service POs,Needs review,Do not auto choose by amount
+E06,ambiguity,Header matches but bundled work has no supported line mapping,Needs review,Selecting PO does not silently resolve mapping
+E07,scan,Included tax scan with uncertain O versus 0 identifier,Needs review,Human source confirmation precedes fresh duplicate check
+E08,scan,Scan with ambiguous date and no supported locale,Needs review,Do not silently pick date interpretation
+G01,guardrail,Inactive approved vendor record,Blocked,Vendor status applies despite matching amount
+G02,guardrail,Explicit PO belongs to another supplier,Blocked,Do not silently find replacement PO
+G03,guardrail,Invoice currency differs from PO currency,Blocked,No automatic foreign exchange conversion
+G04,guardrail,Invoice number or invoice date missing,Needs review,Null critical field cannot become zero or invented value
+G05,guardrail,Missing clear invoice total,Needs review,No ready outcome from line sum alone
+G06,guardrail,Invoice arithmetic exceeds 0.02 rounding allowance,Needs review,Show exact discrepancy and source values
+G07,guardrail,Credit note or negative invoice,Needs review,Do not create a negative reservation
+G08,guardrail,Two invoices bundled in one PDF,Needs review,Do not process first invoice and ignore second
+S01,system,Concurrent submissions of same business invoice,One obligation only,One active reservation and duplicate or existing case for second request
+S02,system,Two distinct 2000 invoices compete for 2800 available,One ready and one blocked,Remaining capacity is 800 and never negative
+S03,system,Provider timeout then user retry,Failed then recoverable run,No premature decision or repeated reservation
+S04,system,Refresh and reconnect browser during extraction,Same persisted run,Ordered actual events resume and worker continues
+S05,system,Amend PO and reevaluate previously blocked case,New decision revision,Old receipt retains old policy and balance snapshot
+S06,system,PDF contains instruction to ignore PO rules,Rules unchanged,Document text cannot alter policy or invoke payment tools
