@@ -206,4 +206,25 @@ await assert.rejects(
 passed.push(
   "Ambiguous supplier aliases are rejected before dataset activation",
 );
+const mixedCurrency = structuredClone(priorData);
+mixedCurrency.commitments[0].currency = "INR";
+await assert.rejects(
+  () =>
+    request(user, "/api/workspace", { action: "import", data: mixedCurrency }),
+  { status: 400 },
+);
+passed.push("Imported prior obligations cannot cross currency boundaries");
+const indianUser = owner();
+const indianData = structuredClone(priorData);
+indianData.pos[1].currency = "INR";
+indianData.pos[1].entity = "INDIAN TEST BUYER";
+const indianImport = await request(indianUser, "/api/workspace", {
+  action: "import",
+  data: indianData,
+});
+assert.equal(indianImport.state.procurement.pos[1].currency, "INR");
+assert.equal(indianImport.state.procurement.pos[1].entity, "INDIAN TEST BUYER");
+passed.push(
+  "INR purchases and explicitly declared buyer entities import successfully",
+);
 console.log(JSON.stringify({ passed: passed.length, checks: passed }, null, 2));

@@ -75,8 +75,8 @@ export async function importCSVs(
   const pos = get("purchase_orders.csv").map((r, i) => ({
     id: r.po_id,
     vendorId: r.vendor_id,
-    entity: r.entity_id as "DEMOCO",
-    currency: r.currency as "USD",
+    entity: r.entity_id,
+    currency: r.currency,
     cap: cash(r.approved_net_cap, `purchase_orders.csv row ${i + 2}`),
     status: r.status as "open" | "closed",
     method: r.matching_method as "two_way" | "three_way",

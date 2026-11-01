@@ -35,11 +35,19 @@ React and Vinext run on the Sites Worker host. D1 replaces the proposed PostgreS
 
 Local extraction runs while the tab is open. Closing it pauses the local work; the uploaded original and stage events are retained, and the case can resume. The app does not claim a background OCR worker or fabricated processing stages.
 
-The prototype is limited to 60 documents per private workspace, 20 decision revisions per document, five PDF pages, 10 MB and English/USD/one buyer entity. The aggregate has an explicit 1.5 MB history limit. Production scale would require splitting records into relational tables, a durable job service and reconciliation with the actual ERP.
+The prototype is limited to 60 documents per private workspace, 20 decision revisions per document, five PDF pages, 10 MB and English text, INR or USD, and buyer entities declared in the supplied purchasing data. The aggregate has an explicit 1.5 MB history limit. Production scale would require splitting records into relational tables, a durable job service and reconciliation with the actual ERP.
 
 The initial procurement dataset is fictional. PO1042 has USD 10,000 net authorized and USD 7,200 in approved prior obligations. The overrun PDF adds USD 3,100 and must be blocked by USD 300. Cap changes require a reason, create a new dataset version and preserve previous receipts. The imported baseline cannot change once invoice cases exist, preventing accidental double counting.
 
-## Sample walkthrough
+## Indian invoice examples
+
+The opening preview uses two real Indian invoices published by Vignan and MIT-ADT. Banking and personal contact details are removed. Their purchase orders, vendor authorization and prior obligations have not been supplied; they remain review tasks until matching records are imported. The app does not invent Indian purchasing records.
+
+Rupees use Indian number grouping. Stated GST components can be summed, and a recognized, fully labeled IRP totals row can be read. This is document arithmetic, not GST compliance, GSTIN or IRN verification. INR and USD never convert or share capacity. The demo price variance is capped at the lower of 2% and INR 100, or 2% and USD 20.
+
+See `docs/DESIGN.md` for the Apple-page study and type/layout decisions. Hanken Grotesk is self-hosted under the included SIL Open Font License.
+
+## Fictional control-scenario walkthrough
 
 1. Process **A clean invoice**. Open source review, inspect the values and line, enter a reason and confirm. It becomes ready with one USD 1,000 net reservation.
 2. Process **The final invoice**. It blocks because earlier obligations leave USD 2,800 while this invoice requests USD 3,100.
@@ -65,7 +73,7 @@ npm run test:api
 
 The test script supplies isolated identity headers to a **local built Worker**, where there is no hosted dispatch. The Vite development server intentionally strips those headers and requires its test sign-in, so the API script must use the isolated built preview. Never add a test authentication bypass to the deployed application. Sites controls authenticated headers on the private host.
 
-Twenty-two rule/parser tests and the actual API integration suite were run successfully during authoring. The browser walkthrough also exercised all five sample scenarios, including native extraction, local OCR, source correction, cumulative overrun, reissue detection and justified missing-PO mapping. These are finite prototype checks, not measured production accuracy or completion of the PRD's full 24-document holdout evaluation.
+Twenty-seven rule/parser tests and the actual API integration suite were run successfully during authoring. The browser walkthrough also exercised all five sample scenarios, including native extraction, local OCR, source correction, cumulative overrun, reissue detection and justified missing-PO mapping. These are finite prototype checks, not measured production accuracy or completion of the PRD's full 24-document holdout evaluation.
 
 Separately stated charges or discounts require review until they have an explicit purchasing allocation. Imported quantity-based obligations need supported quantities; an optional `quantity` column on prior_commitments.csv supplies them. These limits prevent an apparently matching subtotal from hiding unapproved exposure.
 
@@ -77,7 +85,8 @@ Separately stated charges or discounts require review until they have an explici
 - `app/api`: upload, original document, extraction/correction and procurement endpoints.
 - `app/components`: queue, source viewer, receipts, review form and procurement interface.
 - `db/schema.ts` and `drizzle`: schema-only database migration.
-- `public/samples`: six fictional PDFs, including a real image-only scan.
+- `public/samples/india`: two attributed, privacy-edited real Indian invoices; source details in `SOURCES.md`.
+- `public/samples`: six fictional control-scenario PDFs, including an image-only scan.
 - `tests/rules.test.ts` and `scripts/test-api.mjs`: financial and concurrent API verification.
 
 ## Deployment

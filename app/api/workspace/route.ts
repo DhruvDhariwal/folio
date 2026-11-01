@@ -6,7 +6,7 @@ import {
   AppError,
 } from "../../../lib/folio/store";
 import { procurementSchema } from "../../../lib/folio/validation";
-import { cents, latest, safeRef } from "../../../lib/folio/rules";
+import { cents, latest, safeRef, entityId } from "../../../lib/folio/rules";
 export async function GET() {
   try {
     const user = await identity();
@@ -114,10 +114,12 @@ export async function POST(req: Request) {
         if (
           !po ||
           po.vendorId !== c.vendorId ||
+          po.currency !== c.currency ||
+          entityId(po.entity) !== entityId(c.entity) ||
           !po.lines.some((l) => l.id === c.lineId)
         )
           throw new AppError(
-            `Commitment ${c.id}: supplier, PO or line does not match.`,
+            `Commitment ${c.id}: supplier, buyer, currency, PO or line does not match.`,
           );
       }
       const canonical = (items: { id: string }[]) =>

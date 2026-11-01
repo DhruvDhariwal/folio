@@ -77,8 +77,8 @@ export const procurementSchema = z.object({
       z.object({
         id: z.string().min(1).max(40),
         vendorId: z.string().max(40),
-        entity: z.literal("DEMOCO"),
-        currency: z.literal("USD"),
+        entity: z.string().min(1).max(150),
+        currency: z.enum(["USD", "INR"]),
         cap: amount,
         status: z.enum(["open", "closed"]),
         method: z.enum(["two_way", "three_way"]),
@@ -106,10 +106,10 @@ export const procurementSchema = z.object({
       z.object({
         id: z.string().min(1).max(80),
         vendorId: z.string().max(40),
-        entity: z.literal("DEMOCO"),
+        entity: z.string().min(1).max(150),
         reference: z.string().min(1).max(100),
         date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-        currency: z.literal("USD"),
+        currency: z.enum(["USD", "INR"]),
         net: amount,
         gross: amount,
         poId: z.string().max(40),

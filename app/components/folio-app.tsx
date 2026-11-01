@@ -41,6 +41,7 @@ import {
   decimal,
   latest,
   money,
+  POLICY,
 } from "../../lib/folio/rules";
 import {
   CRITICAL,
@@ -57,6 +58,7 @@ import {
   type PO,
 } from "../../lib/folio/types";
 import { importCSVs } from "../../lib/folio/csv";
+import { INDIAN_EXAMPLES } from "../../lib/folio/examples";
 
 const SAMPLES = [
   {
@@ -153,9 +155,35 @@ export default function FolioApp() {
     [editing, setEditing] = useState(false),
     [dialog, setDialog] = useState<Dialog>(),
     [busy, setBusy] = useState(false),
-    [dragging, setDragging] = useState(false);
+    [dragging, setDragging] = useState(false),
+    [exampleIndex, setExampleIndex] = useState(0);
   const input = useRef<HTMLInputElement>(null),
-    csvInput = useRef<HTMLInputElement>(null);
+    csvInput = useRef<HTMLInputElement>(null),
+    searchInput = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const key = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement;
+      if (
+        dialog ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.altKey ||
+        target.isContentEditable ||
+        /INPUT|TEXTAREA|SELECT/.test(target.tagName)
+      )
+        return;
+      if (event.key === "/" && !selected && view !== "procurement") {
+        event.preventDefault();
+        searchInput.current?.focus();
+      }
+      if (event.key.toLowerCase() === "n" && !working && !busy && ws) {
+        event.preventDefault();
+        input.current?.click();
+      }
+    };
+    document.addEventListener("keydown", key);
+    return () => document.removeEventListener("keydown", key);
+  }, [dialog, selected, view, working, busy, ws]);
   async function refresh() {
     const data = await api("/api/workspace");
     setWs(data.state as Workspace);
@@ -217,6 +245,7 @@ export default function FolioApp() {
     setEditing(false);
     setSource(undefined);
     window.history.replaceState({}, "", window.location.pathname);
+    window.scrollTo(0, 0);
   }
   const current = ws?.cases.find((c) => c.id === selected);
   const decision = current
@@ -311,7 +340,9 @@ export default function FolioApp() {
       const r = await fetch(`/samples/${file}`);
       if (!r.ok) throw new Error("Sample PDF is unavailable.");
       await upload(
-        new File([await r.blob()], file, { type: "application/pdf" }),
+        new File([await r.blob()], file.split("/").pop()!, {
+          type: "application/pdf",
+        }),
       );
     } catch (e) {
       setError((e as Error).message);
@@ -381,7 +412,12 @@ export default function FolioApp() {
             {decision?.balance && (
               <div className="dialog-total">
                 <span>Authorized net cap at decision</span>
-                <strong>{money(decision.balance.cap)}</strong>
+                <strong>
+                  {money(
+                    decision.balance.cap,
+                    decision.invoice.fields.currency.value,
+                  )}
+                </strong>
               </div>
             )}
             <div className="ledger-list">
@@ -391,7 +427,12 @@ export default function FolioApp() {
                     <strong>{v.reference}</strong>
                     <small>{v.kind}</small>
                   </div>
-                  <b>{money(v.net)}</b>
+                  <b>
+                    {money(
+                      v.net,
+                      decision?.invoice.fields.currency.value || po?.currency,
+                    )}
+                  </b>
                 </div>
               ))}
               {!h.length && <p>No previous commitments for this purchase.</p>}
@@ -434,7 +475,7 @@ export default function FolioApp() {
       title: "The rules behind the decision",
       content: (
         <>
-          <p className="muted">Policy 1.0-local · Explicit prototype rules</p>
+          <p className="muted">Policy {POLICY} · Explicit prototype rules</p>
           <div className="policy-list">
             {[
               [
@@ -443,7 +484,7 @@ export default function FolioApp() {
               ],
               [
                 "Price variance",
-                "An increase must fit both 2% of expected net and USD 20. A reduction above 10% needs review.",
+                "An increase must fit both 2% of expected net and the currency cap: USD 20 or INR 100. These are demo controls, not exchange-rate equivalents. A reduction above 10% needs review.",
               ],
               [
                 "PO capacity",
@@ -524,8 +565,15 @@ export default function FolioApp() {
         .toLowerCase()
         .includes(query.toLowerCase()),
   );
+  const example = INDIAN_EXAMPLES[exampleIndex];
+  const publicExample = INDIAN_EXAMPLES.find(
+    (item) => item.file.split("/").pop() === current?.filename,
+  );
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${current ? "detail-view" : ""}`}>
+      <a className="skip-link" href="#workspace-content">
+        Skip to workspace
+      </a>
       <input
         ref={input}
         type="file"
@@ -546,31 +594,19 @@ export default function FolioApp() {
             setView("queue");
           }}
         >
-          <span className="brand-mark">
-            <span />
-          </span>
-          <span>
-            folio<span className="brand-dot">.</span>
-          </span>
+          <span>Folio</span>
         </a>
-        <div className="workspace-switch">
-          <div className="workspace-avatar">D</div>
-          <div>
-            <strong>Demo Company</strong>
-            <small>Invoice workspace</small>
-          </div>
-          <ChevronDown size={13} />
-        </div>
-        <div className="nav-label">WORKSPACE</div>
-        <nav>
+        <nav aria-label="Workspace navigation">
           {[
             { id: "queue", icon: Inbox, label: "Invoices", count: counts.all },
-            { id: "history", icon: History, label: "Run history" },
-            { id: "procurement", icon: Layers3, label: "Procurement data" },
+            { id: "history", icon: History, label: "History" },
+            { id: "procurement", icon: Layers3, label: "Purchases" },
           ].map((n) => (
             <button
               key={n.id}
               aria-label={n.label}
+              aria-current={view === n.id ? "page" : undefined}
+              title={n.label}
               className={view === n.id ? "active" : ""}
               onClick={() => {
                 back();
@@ -578,64 +614,31 @@ export default function FolioApp() {
                 setFilter("all");
               }}
             >
-              <n.icon size={18} />
               <span>{n.label}</span>
-              {n.count !== undefined && <b>{n.count}</b>}
             </button>
           ))}
         </nav>
         <div className="sidebar-bottom">
-          <button className="sidebar-policy" onClick={policy}>
+          <button
+            className="sidebar-policy"
+            title="Decision policy"
+            onClick={policy}
+          >
             <ShieldCheck size={17} />
-            <span>
-              Decision policy <small>Version 1.0-local</small>
-            </span>
-            <ArrowUpRight size={14} />
+            <span>Policy</span>
           </button>
-          <div className="local-label">
-            <span className="status-dot" /> Local PDF & OCR processing
-          </div>
-          <div className="user">
-            <div className="avatar">
-              {(user?.name || "D").slice(0, 1).toUpperCase()}
-            </div>
-            <div>
-              <strong>{user?.name || "Your workspace"}</strong>
-              <small>Private workspace</small>
-            </div>
-            <LockKeyhole size={13} />
-          </div>
+          <button
+            className="icon-button"
+            title="Refresh saved workspace"
+            aria-label="Refresh saved workspace"
+            onClick={() => refresh().catch((e) => setError(e.message))}
+          >
+            <RefreshCw size={16} />
+          </button>
         </div>
       </aside>
       <div className="main-shell">
-        <header className="topbar">
-          <div className="breadcrumb">
-            <span>Workspace</span>
-            <ChevronRight size={13} />
-            <b>
-              {selected
-                ? "Invoice decision"
-                : view === "queue"
-                  ? "Invoices"
-                  : view === "history"
-                    ? "Run history"
-                    : "Procurement data"}
-            </b>
-          </div>
-          <div className="topbar-right">
-            <span className="two-way">
-              <ShieldCheck size={13} /> Two-way checking
-            </span>
-            <button
-              className="icon-button"
-              title="Refresh saved workspace"
-              onClick={() => refresh().catch((e) => setError(e.message))}
-            >
-              <RefreshCw size={15} />
-            </button>
-          </div>
-        </header>
-        <main>
+        <main id="workspace-content">
           {error && (
             <div role="alert" className="message error">
               <CircleAlert size={18} />
@@ -702,7 +705,6 @@ export default function FolioApp() {
               </div>
               <div className="case-heading">
                 <div>
-                  <div className="eyebrow">INVOICE DECISION</div>
                   <h1>{invoice?.fields.vendor.value || current.filename}</h1>
                   <div className="case-meta">
                     <span>
@@ -712,7 +714,7 @@ export default function FolioApp() {
                     <i />
                     <span>
                       {invoice?.fields.total.value
-                        ? `${money(cents(invoice.fields.total.value) || 0)} gross`
+                        ? `${money(cents(invoice.fields.total.value) || 0, invoice.fields.currency.value)} gross`
                         : current.filename}
                     </span>
                     <i />
@@ -728,6 +730,19 @@ export default function FolioApp() {
                   voided={!!current.voided}
                 />
               </div>
+              {publicExample && (
+                <p className="source-provenance">
+                  Published Indian invoice · Privacy-edited copy.{" "}
+                  <a
+                    href={publicExample.source}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    View source <ArrowUpRight size={12} />
+                  </a>{" "}
+                  Purchase records have not been supplied.
+                </p>
+              )}
               <div className="stage-strip" aria-live="polite">
                 {STAGES.map((s, i) => {
                   const event = [...current.events]
@@ -838,11 +853,6 @@ export default function FolioApp() {
                 </div>
               )}
               <div className="case-grid">
-                <PDFViewer
-                  id={current.id}
-                  extraction={invoice}
-                  source={source}
-                />
                 <div className="decision-column">
                   {historical && decision && (
                     <div className="historical-banner">
@@ -883,7 +893,7 @@ export default function FolioApp() {
                         className={`panel decision-card ${decision.outcome}`}
                       >
                         <div className="decision-kicker">
-                          <span>DECISION RECEIPT</span>
+                          <span>Decision</span>
                           <span>
                             R{String(decision.revision).padStart(2, "0")}
                           </span>
@@ -901,7 +911,7 @@ export default function FolioApp() {
                           {decision.outcome === "blocked" &&
                           decision.balance &&
                           decision.balance.remaining < 0
-                            ? `PO capacity exceeded by ${money(-decision.balance.remaining)}`
+                            ? `PO capacity exceeded by ${money(-decision.balance.remaining, decision.invoice.fields.currency.value)}`
                             : OUTCOME_LABELS[decision.outcome]}
                         </h2>
                         <p>{decision.summary}</p>
@@ -928,7 +938,7 @@ export default function FolioApp() {
                         />
                       )}
                       <section className="panel next-action">
-                        <div className="eyebrow">WHAT NEEDS TO HAPPEN NEXT</div>
+                        <div className="eyebrow">Next step</div>
                         <p>{decision.nextAction}</p>
                         <div className="action-caption">
                           {decision.outcome === "ready"
@@ -1098,6 +1108,11 @@ export default function FolioApp() {
                     </section>
                   )}
                 </div>
+                <PDFViewer
+                  id={current.id}
+                  extraction={invoice}
+                  source={source}
+                />
               </div>
               <div className="boundary-note">
                 <ShieldCheck size={14} /> Invoice and PO checked. Delivery and
@@ -1108,8 +1123,7 @@ export default function FolioApp() {
             <>
               <div className="page-heading">
                 <div>
-                  <div className="eyebrow">SOURCE OF TRUTH</div>
-                  <h1>Procurement data</h1>
+                  <h1>Purchases.</h1>
                   <p>
                     Approved purchases, supplier records and prior obligations.
                   </p>
@@ -1172,7 +1186,9 @@ export default function FolioApp() {
                     are fictional and do not connect to an ERP.
                   </span>
                 </div>
-                <span className="dataset-tag">USD · DEMOCO</span>
+                <span className="dataset-tag">
+                  INR / USD · No currency conversion
+                </span>
               </div>
               <section className="panel data-panel">
                 <div className="panel-heading">
@@ -1226,10 +1242,14 @@ export default function FolioApp() {
                                 )?.name
                               }
                             </td>
-                            <td className="amount">{money(po.cap)}</td>
-                            <td className="amount">{money(committed)}</td>
                             <td className="amount">
-                              {money(po.cap - committed)}
+                              {money(po.cap, po.currency)}
+                            </td>
+                            <td className="amount">
+                              {money(committed, po.currency)}
+                            </td>
+                            <td className="amount">
+                              {money(po.cap - committed, po.currency)}
                             </td>
                             <td>
                               <button
@@ -1282,7 +1302,7 @@ export default function FolioApp() {
                             {c.poId} · {c.date}
                           </small>
                         </div>
-                        <b>{money(c.net)}</b>
+                        <b>{money(c.net, c.currency)}</b>
                       </div>
                     ))}
                   </div>
@@ -1303,18 +1323,11 @@ export default function FolioApp() {
             <>
               <div className="page-heading">
                 <div>
-                  <div className="eyebrow">
-                    {view === "history"
-                      ? "YOUR AUDIT TRAIL"
-                      : "ACCOUNTS PAYABLE"}
-                  </div>
-                  <h1>
-                    {view === "history" ? "Run history" : "Invoice decisions"}
-                  </h1>
+                  <h1>{view === "history" ? "History." : "Invoices."}</h1>
                   <p>
                     {view === "history"
-                      ? "Every original, correction and decision. Saved with its evidence."
-                      : "A clear answer for every invoice. The evidence to back it up."}
+                      ? "Every decision, with its original context."
+                      : "A clear view of the document and the decision."}
                   </p>
                 </div>
                 <button
@@ -1322,72 +1335,12 @@ export default function FolioApp() {
                   disabled={!!working || busy || !ws}
                   onClick={() => input.current?.click()}
                 >
-                  {busy ? (
-                    <LoaderCircle className="spin" size={16} />
-                  ) : (
-                    <Plus size={16} />
-                  )}{" "}
-                  Upload invoice
+                  <Plus size={17} /> Upload invoice
                 </button>
               </div>
-              <div className="stats-grid">
-                {[
-                  {
-                    label: "Invoices received",
-                    value: counts.all,
-                    icon: Inbox,
-                    sub: "Unique PDF documents",
-                    tone: "neutral",
-                  },
-                  {
-                    label: "Need your review",
-                    value: counts.review,
-                    icon: FileSearch,
-                    sub: "Source values or context needed",
-                    tone: "review",
-                  },
-                  {
-                    label: "Blocked by a control",
-                    value: counts.blocked,
-                    icon: ShieldCheck,
-                    sub: "Invoice value, not money saved",
-                    tone: "blocked",
-                  },
-                  {
-                    label: "Ready for approval",
-                    value: counts.ready,
-                    icon: CheckCheck,
-                    sub: "Invoice and PO checks passed",
-                    tone: "ready",
-                  },
-                ].map((s) => (
-                  <button
-                    key={s.label}
-                    className={`stat ${s.tone}`}
-                    onClick={() =>
-                      setFilter(
-                        s.tone === "neutral"
-                          ? "all"
-                          : s.tone === "review"
-                            ? "review"
-                            : s.tone === "blocked"
-                              ? "blocked"
-                              : "ready",
-                      )
-                    }
-                  >
-                    <div>
-                      <span>{s.label}</span>
-                      <s.icon size={17} />
-                    </div>
-                    <strong>{s.value.toString().padStart(2, "0")}</strong>
-                    <small>{s.sub}</small>
-                  </button>
-                ))}
-              </div>
-              {!counts.all && view !== "history" && (
+              {view !== "history" && (
                 <section
-                  className={`upload-start ${dragging ? "dragging" : ""}`}
+                  className={`intake ${dragging ? "dragging" : ""}`}
                   onDragOver={(e) => {
                     e.preventDefault();
                     setDragging(true);
@@ -1400,63 +1353,101 @@ export default function FolioApp() {
                     if (file) void upload(file);
                   }}
                 >
-                  <div className="upload-illustration">
-                    <div className="paper-back" />
-                    <div className="paper-front">
-                      <span className="paper-corner" />
-                      <FileText size={26} />
-                      <i />
-                      <i />
-                      <i />
-                      <b>
-                        <Check size={14} />
-                      </b>
-                    </div>
-                  </div>
-                  <div className="upload-copy">
-                    <div className="eyebrow">
-                      YOUR FIRST DECISION STARTS HERE
-                    </div>
+                  <div className="intake-copy">
                     <h2>
-                      Bring the invoice.
+                      Open a PDF.
                       <br />
-                      See the whole picture.
+                      <span>Make sense of it.</span>
                     </h2>
                     <p>
-                      Drop a PDF to read its details, find the purchase order,
-                      <br className="desktop-br" /> and check what has already
-                      been committed.
+                      See the original beside the checks that explain what needs
+                      your attention.
                     </p>
-                    <div>
-                      <button
-                        className="button primary"
-                        disabled={!!working || busy}
-                        onClick={() => input.current?.click()}
-                      >
-                        <Upload size={15} /> Choose a PDF
-                      </button>
-                      <span>PDF · up to 5 pages · 10 MB</span>
+                    <button
+                      className="button primary"
+                      disabled={!!working || busy || !ws}
+                      onClick={() => input.current?.click()}
+                    >
+                      Choose a PDF
+                    </button>
+                    <span className="intake-limit">
+                      Or drop it here. Up to 5 pages, 10 MB.
+                    </span>
+                    <div className="intake-privacy">
+                      <LockKeyhole size={15} />
+                      <span>
+                        Text and scans are read in your browser.
+                        <br />
+                        Documents stay in your private workspace.
+                      </span>
                     </div>
                   </div>
-                  <div className="process-mini">
+                  <div className="invoice-showcase">
+                    <div
+                      className="example-picker"
+                      role="group"
+                      aria-label="Indian invoice examples"
+                    >
+                      {INDIAN_EXAMPLES.map((item, i) => (
+                        <button
+                          key={item.file}
+                          aria-pressed={exampleIndex === i}
+                          onClick={() => setExampleIndex(i)}
+                        >
+                          {item.title}
+                        </button>
+                      ))}
+                    </div>
+                    <button
+                      className="invoice-preview"
+                      disabled={!!working || busy || !ws}
+                      onClick={() => sample(example.file)}
+                      aria-label={`Review ${example.reference} from ${example.recipient}`}
+                    >
+                      <img
+                        src={example.preview}
+                        alt={`Published Indian ${example.title.toLowerCase()}, ${example.reference}`}
+                      />
+                    </button>
+                  </div>
+                  <div className="example-caption">
                     <div>
-                      <span>01</span>
-                      <strong>Read the source</strong>
-                      <small>Native text or local OCR</small>
+                      <strong>{example.supplier}</strong>
+                      <span>
+                        {example.title} · {example.reference}
+                      </span>
                     </div>
                     <div>
-                      <span>02</span>
-                      <strong>Check the purchase</strong>
-                      <small>Rules, duplicates and PO capacity</small>
-                    </div>
-                    <div>
-                      <span>03</span>
-                      <strong>Keep the decision</strong>
-                      <small>Evidence and a clear next action</small>
+                      <button
+                        className="text-link"
+                        disabled={!!working || busy || !ws}
+                        onClick={() => sample(example.file)}
+                      >
+                        Try this invoice <ChevronRight size={16} />
+                      </button>
+                      <a href={example.source} target="_blank" rel="noreferrer">
+                        Published source <ArrowUpRight size={12} />
+                      </a>
                     </div>
                   </div>
                 </section>
               )}
+              {view !== "history" && (
+                <p className="source-disclosure">
+                  Real Indian invoices, published by the institutions that
+                  received them. Demo copies omit banking and personal contact
+                  details. Their purchase records have not been supplied.
+                </p>
+              )}
+              <div className="workspace-heading">
+                <h2>
+                  {view === "history" ? "Saved activity" : "Your workspace"}
+                </h2>
+                <span>
+                  {counts.all} invoice{counts.all === 1 ? "" : "s"}
+                </span>
+              </div>
+
               <section className="panel invoice-list">
                 <div className="list-toolbar">
                   <div className="tabs">
@@ -1469,6 +1460,7 @@ export default function FolioApp() {
                       <button
                         key={k}
                         className={filter === k ? "active" : ""}
+                        aria-pressed={filter === k}
                         onClick={() => setFilter(k)}
                       >
                         {label}
@@ -1479,10 +1471,13 @@ export default function FolioApp() {
                   <label className="search">
                     <Search size={15} />
                     <input
+                      ref={searchInput}
+                      aria-label="Search invoices"
                       placeholder="Search invoices…"
                       value={query}
                       onChange={(e) => setQuery(e.target.value)}
                     />
+                    <kbd>/</kbd>
                   </label>
                 </div>
                 {filtered.length ? (
@@ -1532,6 +1527,7 @@ export default function FolioApp() {
                                   ? money(
                                       cents(c.extraction.fields.total.value) ||
                                         0,
+                                      c.extraction.fields.currency.value,
                                     )
                                   : "—"}
                               </td>
@@ -1585,45 +1581,40 @@ export default function FolioApp() {
                 )}
               </section>
               {view !== "history" && (
-                <section className="samples-section">
-                  <div className="section-title">
-                    <div>
-                      <h2>Explore the exceptions</h2>
-                      <p>
-                        Fictional invoices. Real PDFs. The same processing
-                        pipeline.
-                      </p>
-                    </div>
-                    <span className="sample-label">SAMPLE FILES</span>
-                  </div>
+                <details className="control-lab">
+                  <summary>
+                    <span>Explore the control scenarios</span>
+                    <Plus size={18} />
+                  </summary>
+                  <p>
+                    Fictional USD invoices paired with the demonstration
+                    purchase records. The Indian examples above use real public
+                    documents.
+                  </p>
                   <div className="sample-grid">
                     {SAMPLES.map((s) => (
                       <button
                         key={s.file}
-                        disabled={!!working || busy || !ws}
                         className="sample-card"
+                        disabled={!!working || busy || !ws}
                         onClick={() => sample(s.file)}
                       >
-                        <span className={`sample-icon ${s.tone}`}>
-                          <s.icon size={20} />
-                        </span>
+                        <s.icon size={22} />
                         <strong>{s.title}</strong>
                         <p>{s.text}</p>
-                        <span className="sample-action">
-                          Process PDF <ArrowUpRight size={14} />
+                        <span className="text-link">
+                          Open scenario <ChevronRight size={13} />
                         </span>
                       </button>
                     ))}
                   </div>
-                </section>
+                </details>
               )}
               <div className="workspace-foot">
                 <span>
                   <LockKeyhole size={13} /> Private invoice workspace
                 </span>
-                <span>
-                  Local extraction · Versioned policy · Persistent decisions
-                </span>
+                <span>PDFs and scans · Source-linked decisions</span>
                 <button className="text-link" onClick={policy}>
                   How decisions work <ArrowUpRight size={13} />
                 </button>
@@ -1761,6 +1752,7 @@ function BalanceCard({
   onEvidence: (id: string) => void;
 }) {
   const b = d.balance!;
+  const displayMoney = (n: number) => money(n, d.invoice.fields.currency.value);
   const consumed = Math.min(
       100,
       ((b.prior + b.local) / Math.max(1, b.cap)) * 100,
@@ -1769,7 +1761,7 @@ function BalanceCard({
   return (
     <section className="panel balance-card">
       <div className="balance-title">
-        <span>PO AT DECISION TIME</span>
+        <span>Purchase balance</span>
         <button onClick={() => onEvidence(`po:${b.poId}`)}>
           {b.poId}
           <ArrowUpRight size={12} />
@@ -1792,13 +1784,13 @@ function BalanceCard({
       <div className="balance-rows">
         <div>
           <span>Approved net cap</span>
-          <b>{money(b.cap)}</b>
+          <b>{displayMoney(b.cap)}</b>
         </div>
         <button onClick={() => onEvidence("prior-commitments")}>
           <span>
             Earlier obligations <Link2 size={11} />
           </span>
-          <b>{money(b.prior + b.local)}</b>
+          <b>{displayMoney(b.prior + b.local)}</b>
         </button>
         <button
           onClick={() => {
@@ -1809,13 +1801,13 @@ function BalanceCard({
           <span>
             This invoice net <Link2 size={11} />
           </span>
-          <b>{money(b.current)}</b>
+          <b>{displayMoney(b.current)}</b>
         </button>
         <div className={`balance-result ${b.remaining < 0 ? "red" : "green"}`}>
           <strong>
             {b.remaining < 0 ? "Capacity deficit" : "Remaining after invoice"}
           </strong>
-          <b>{money(Math.abs(b.remaining))}</b>
+          <b>{displayMoney(Math.abs(b.remaining))}</b>
         </div>
       </div>
     </section>
@@ -1933,7 +1925,11 @@ function CorrectionEditor({
               }}
             />
             {draft.fields[k].derived && (
-              <small>Derived from stated gross and tax</small>
+              <small>
+                {k === "tax"
+                  ? "Sum of stated tax components; check each in the PDF"
+                  : "Derived from stated gross and tax"}
+              </small>
             )}
           </label>
         ))}
@@ -2197,7 +2193,7 @@ function Amendment({
         retain their original purchasing basis.
       </p>
       <label>
-        Approved net cap in USD
+        Approved net cap in {po.currency}
         <input
           required
           inputMode="decimal"

@@ -201,7 +201,7 @@ export const STAGES: { id: Stage; label: string }[] = [
   { id: "read", label: "Read PDF" },
   { id: "extract", label: "Extracted" },
   { id: "validate", label: "Validated" },
-  { id: "match", label: "Found PO" },
+  { id: "match", label: "PO lookup" },
   { id: "policy", label: "Checked policy" },
   { id: "record", label: "Recorded" },
 ];

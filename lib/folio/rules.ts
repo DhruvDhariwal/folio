@@ -9,11 +9,16 @@ import {
   type PO,
 } from "./types";
 
-export const POLICY = "1.0-local";
+export const POLICY = "1.1-local";
 export function cents(value: string | undefined): number | null {
   if (value === undefined || value.trim() === "") return null;
-  const raw = value.trim().replace(/^(?:USD|EUR|INR|US\$|\$)\s*/i, "");
-  if (!/^-?(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d{1,2})?$/.test(raw)) return null;
+  const raw = value.trim().replace(/^(?:USD|EUR|INR|US\$|\$|₹|Rs\.?)\s*/i, "");
+  if (
+    !/^-?(?:\d+|\d{1,3}(?:,\d{3})+|\d{1,2}(?:,\d{2})*,\d{3})(?:\.\d{1,2})?$/.test(
+      raw,
+    )
+  )
+    return null;
   const s = raw.replace(/,/g, "");
   const negative = s.startsWith("-");
   const [whole, decimal = ""] = s.replace(/^-/, "").split(".");
@@ -21,10 +26,11 @@ export function cents(value: string | undefined): number | null {
   return Number.isSafeInteger(result) ? (negative ? -result : result) : null;
 }
 export const decimal = (n: number) => (n / 100).toFixed(2);
-export const money = (n: number) =>
-  new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(
-    n / 100,
-  );
+export const money = (n: number, currency = "USD") =>
+  new Intl.NumberFormat(currency === "INR" ? "en-IN" : "en-US", {
+    style: "currency",
+    currency: /^[A-Z]{3}$/.test(currency) ? currency : "USD",
+  }).format(n / 100);
 export const safeRef = (s: string) => s.trim().toUpperCase();
 export const simple = (s: string) =>
   s.trim().toLowerCase().replace(/\s+/g, " ");
@@ -96,7 +102,7 @@ export function candidatePOs(s: Workspace, invoice: Extraction): PO[] {
   return s.procurement.pos.filter(
     (p) =>
       p.vendorId === v?.id &&
-      p.entity === entityId(invoice.fields.entity.value) &&
+      entityId(p.entity) === entityId(invoice.fields.entity.value) &&
       p.currency === invoice.fields.currency.value.toUpperCase() &&
       p.status === "open",
   );
@@ -109,6 +115,14 @@ export function evaluate(
 ): Decision {
   const inv = c.extraction!;
   const f = inv.fields;
+  const invoiceCurrency = f.currency.value.toUpperCase();
+  const displayMoney = (n: number) => money(n, invoiceCurrency || "USD");
+  const approvedEntities = new Set(
+    s.procurement.pos.map((p) => entityId(p.entity)),
+  );
+  const referencedPO = s.procurement.pos.find(
+    (p) => p.id === f.po.value.trim().toUpperCase(),
+  );
   const checks: Check[] = [];
   const add = (
     id: string,
@@ -170,13 +184,22 @@ export function evaluate(
     "Buyer entity",
     !f.entity.value
       ? "review"
-      : entityId(f.entity.value) !== "DEMOCO"
+      : referencedPO &&
+          entityId(f.entity.value) !== entityId(referencedPO.entity)
         ? "block"
-        : "pass",
-    entityId(f.entity.value) === "DEMOCO"
-      ? "The invoice belongs to Demo Company."
-      : "The buyer does not match this workspace's legal entity.",
-    { actual: f.entity.value, expected: "Demo Company" },
+        : approvedEntities.has(entityId(f.entity.value))
+          ? "pass"
+          : "review",
+    referencedPO && entityId(f.entity.value) !== entityId(referencedPO.entity)
+      ? "The buyer conflicts with the entity on the referenced purchase order."
+      : approvedEntities.has(entityId(f.entity.value))
+        ? "The buyer is present in the supplied purchasing records."
+        : "This buyer has no matching purchasing records in the workspace. Supply the correct records before clearance.",
+    {
+      actual: f.entity.value,
+      expected:
+        referencedPO?.entity || "A buyer in the supplied purchasing records",
+    },
   );
   add(
     "date",
@@ -218,13 +241,13 @@ export function evaluate(
       net! < 0 || total! < 0
         ? "Credit notes require a separate manual process."
         : Math.abs(diff) > 2
-          ? "The stated amounts do not reconcile within the USD 0.02 rounding allowance."
+          ? `The stated amounts do not reconcile within the ${displayMoney(2)} rounding allowance.`
           : "Net plus stated tax and charges, less discount, reconciles to the invoice total.",
       {
-        actual: money(total!),
-        expected: money(net! + tax! + fees! - discount!),
-        difference: money(diff),
-        limit: "$0.02",
+        actual: displayMoney(total!),
+        expected: displayMoney(net! + tax! + fees! - discount!),
+        difference: displayMoney(diff),
+        limit: displayMoney(2),
         evidence: [f.net.sourceId, f.tax.sourceId, f.total.sourceId].filter(
           Boolean,
         ) as string[],
@@ -339,7 +362,10 @@ export function evaluate(
         ? `Possible duplicate resolved: ${c.duplicateResolution.reason}`
         : "No exact or qualifying similar obligation found in retained history.",
     );
-  const explicit = f.po.value.trim().toUpperCase().replace(/[\s-]/g, "");
+  const rawExplicit = f.po.value.trim().toUpperCase();
+  const explicit = /^PO[\s-]?\d+$/.test(rawExplicit)
+    ? rawExplicit.replace(/[\s-]/g, "")
+    : rawExplicit;
   const po = s.procurement.pos.find((p) => p.id === (c.selectedPo || explicit));
   const explicitPo = explicit
     ? s.procurement.pos.find((p) => p.id === explicit)
@@ -356,13 +382,15 @@ export function evaluate(
     explicit &&
     (!explicitPo ||
       explicitPo.vendorId !== vendor?.id ||
-      explicitPo.entity !== entityId(f.entity.value))
+      entityId(explicitPo.entity) !== entityId(f.entity.value))
   )
     add(
       "po_identity",
       "Purchase order identity",
-      "block",
-      "The explicit PO is unknown or belongs to a different supplier or entity. Correct the source or procurement record.",
+      !explicitPo && !vendor ? "review" : "block",
+      !explicitPo && !vendor
+        ? "The referenced purchase and supplier are not in the supplied data. Import matching purchasing records; the invoice alone cannot prove authorization."
+        : "The explicit PO is unknown or belongs to a different supplier or entity. Correct the source or procurement record.",
       { actual: explicit },
     );
   else if (!po)
@@ -372,7 +400,10 @@ export function evaluate(
       "review",
       `No unambiguous purchase order selected. ${candidatePOs(s, inv).length} eligible candidates are available. An amount alone cannot establish the purchase.`,
     );
-  else if (po.vendorId !== vendor?.id || po.entity !== entityId(f.entity.value))
+  else if (
+    po.vendorId !== vendor?.id ||
+    entityId(po.entity) !== entityId(f.entity.value)
+  )
     add(
       "po_identity",
       "Purchase order identity",
@@ -409,14 +440,18 @@ export function evaluate(
     "Currency",
     !f.currency.value
       ? "review"
-      : f.currency.value.toUpperCase() !== "USD" ||
+      : !["USD", "INR"].includes(f.currency.value.toUpperCase()) ||
           (po && po.currency !== f.currency.value.toUpperCase())
         ? "block"
         : "pass",
-    f.currency.value.toUpperCase() === "USD"
-      ? "The invoice and supported purchasing currency are USD."
+    ["USD", "INR"].includes(f.currency.value.toUpperCase()) &&
+      (!po || po.currency === f.currency.value.toUpperCase())
+      ? `The stated currency is ${f.currency.value.toUpperCase()}. Amounts are compared only with purchasing records in the same currency.`
       : "This workflow does not convert currencies.",
-    { actual: f.currency.value, expected: po?.currency || "USD" },
+    {
+      actual: f.currency.value,
+      expected: po?.currency || "INR or USD; no currency conversion",
+    },
   );
   if (po?.method === "three_way")
     add(
@@ -466,12 +501,12 @@ export function evaluate(
       "Cumulative PO capacity",
       balance.remaining < 0 ? "block" : "pass",
       balance.remaining < 0
-        ? `This invoice exceeds ${po.id} by ${money(-balance.remaining)}. Earlier commitments leave ${money(balance.available)} available.`
-        : `${money(balance.remaining)} remains after this invoice.`,
+        ? `This invoice exceeds ${po.id} by ${displayMoney(-balance.remaining)}. Earlier commitments leave ${displayMoney(balance.available)} available.`
+        : `${displayMoney(balance.remaining)} remains after this invoice.`,
       {
-        actual: money(prior + local + net),
-        expected: money(po.cap),
-        difference: money(Math.max(0, -balance.remaining)),
+        actual: displayMoney(prior + local + net),
+        expected: displayMoney(po.cap),
+        difference: displayMoney(Math.max(0, -balance.remaining)),
         limit: "$0.00 overrun",
         evidence: [
           `po:${po.id}`,
@@ -547,7 +582,10 @@ export function evaluate(
           );
         else {
           const diff = ln - expected;
-          const allowed = Math.min(Math.floor((expected * 2) / 100), 2000);
+          const allowed = Math.min(
+            Math.floor((expected * 2) / 100),
+            invoiceCurrency === "INR" ? 10000 : 2000,
+          );
           const amountFromUnit =
             qty !== null && statedUnit !== null
               ? quantityProduct(line.quantity, statedUnit)
@@ -572,10 +610,10 @@ export function evaluate(
                   ? "The price is more than 10% below the expected amount; review the reason."
                   : "The mapped line price is within the permitted variance.",
             {
-              actual: money(ln),
-              expected: money(expected),
-              difference: money(diff),
-              limit: money(allowed),
+              actual: displayMoney(ln),
+              expected: displayMoney(expected),
+              difference: displayMoney(diff),
+              limit: displayMoney(allowed),
               evidence: line.sourceId
                 ? [line.sourceId, `po:${po.id}/${mapped.id}`]
                 : [`po:${po.id}/${mapped.id}`],
@@ -592,7 +630,11 @@ export function evaluate(
         Math.abs(lineSum - net) > 2
           ? "Mapped line amounts do not reconcile to the invoice net."
           : "The line amounts reconcile to the invoice net.",
-        { actual: money(lineSum), expected: money(net), limit: "$0.02" },
+        {
+          actual: displayMoney(lineSum),
+          expected: displayMoney(net),
+          limit: displayMoney(2),
+        },
       );
     for (const [id, g] of Object.entries(grouped)) {
       const pl = po.lines.find((l) => l.id === id)!;
@@ -609,11 +651,11 @@ export function evaluate(
         `${id} remaining capacity`,
         prev + g.net > pl.cap ? "block" : "pass",
         prev + g.net > pl.cap
-          ? `This line would exceed its authorization by ${money(prev + g.net - pl.cap)}.`
+          ? `This line would exceed its authorization by ${displayMoney(prev + g.net - pl.cap)}.`
           : "This line remains within its authorized net cap.",
         {
-          actual: money(prev + g.net),
-          expected: money(pl.cap),
+          actual: displayMoney(prev + g.net),
+          expected: displayMoney(pl.cap),
           limit: "$0.00 overrun",
           evidence: [`po:${po.id}/${id}`],
         },

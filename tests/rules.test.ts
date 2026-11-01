@@ -1,7 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { initialWorkspace } from "../lib/folio/seed";
-import { evaluate, cents, quantityProduct, latest } from "../lib/folio/rules";
+import {
+  evaluate,
+  cents,
+  quantityProduct,
+  latest,
+  money,
+} from "../lib/folio/rules";
 import { parseInvoice } from "../lib/folio/parse";
 import type { Extraction, InvoiceCase, SourceLine } from "../lib/folio/types";
 
@@ -75,6 +81,114 @@ function invoice(e = extraction()): InvoiceCase {
     events: [],
   };
 }
+
+test("Indian grouping is parsed exactly and rupees keep lakh formatting", () => {
+  assert.equal(cents("INR 6,80,615.00"), 68061500);
+  assert.equal(cents("₹8,03,125.70"), 80312570);
+  assert.equal(cents("1,2345.00"), null);
+  assert.equal(money(80312570, "INR"), "₹8,03,125.70");
+});
+
+test("INR is checked in its own currency and is never converted into USD", () => {
+  const s = initialWorkspace();
+  s.procurement.pos[1].currency = "INR";
+  const c = invoice(extraction({ currency: "INR" }));
+  const d = evaluate(s, c, "tester");
+  assert.equal(d.outcome, "ready");
+  assert.ok(
+    d.checks.find((k) => k.id === "arithmetic")?.actual?.startsWith("₹"),
+  );
+  const wrong = invoice(extraction());
+  assert.equal(
+    evaluate(s, wrong, "tester").checks.find((k) => k.id === "currency")
+      ?.status,
+    "block",
+  );
+});
+
+test("an Indian public invoice without purchasing records stays a review task", () => {
+  const c = invoice(
+    extraction(
+      {
+        vendor: "Turnitin India Private Limited",
+        entity: "Vignan University",
+        currency: "INR",
+        po: "VFSTR/REG/A7/2023-24/09",
+      },
+      false,
+    ),
+  );
+  const d = evaluate(initialWorkspace(), c, "tester");
+  assert.equal(d.outcome, "review");
+  assert.equal(d.checks.find((k) => k.id === "po_identity")?.status, "review");
+});
+
+test("stated GST components sum without guessing a tax rate", () => {
+  const text = [
+    "Turnitin India Private Limited",
+    "Bill To  Account Manager",
+    "Vignan University",
+    "Invoice No: IN-TIN-01599",
+    "Date: 7/26/2023",
+    "Purchase Order No: VFSTR/REG/A7/2023-24/09",
+    "Subtotal INR 6,80,615.00",
+    "CGST - 0% INR 0.00",
+    "SGST - 0% INR 0.00",
+    "IGST - IN 18% INR 1,22,510.70",
+    "UTGST - 0% INR 0.00",
+    "Total INR 8,03,125.70",
+  ];
+  const sources = text.map((text, i) => ({
+    id: `p1-s${i}`,
+    text,
+    page: 1,
+    box: [0, i * 10, 500, 10] as [number, number, number, number],
+  }));
+  const e = parseInvoice(sources, [{ width: 612, height: 792 }], "native", []);
+  assert.equal(e.fields.vendor.value, "Turnitin India Private Limited");
+  assert.equal(e.fields.currency.value, "INR");
+  assert.equal(e.fields.net.value, "680615.00");
+  assert.equal(e.fields.tax.value, "122510.70");
+  assert.equal(e.fields.total.value, "803125.70");
+  assert.equal(e.fields.date.value, "2023-07-26");
+  assert.equal(e.fields.po.value, "VFSTR/REG/A7/2023-24/09");
+});
+
+test("a columnar IRP print keeps the reference and parties separate", () => {
+  const text = [
+    "TURNITIN INDIA PRIVATE LIMITED",
+    "Supply type Code : B2B  Document No. : IN-TIN-02619  IGST applicable despite Supplier and",
+    "Document Type : Tax Invoice  Document Date : 23-04-2024",
+    "Supplier :  Recipient :",
+    "GSTIN : 09AAGCT1132P1Z1  GSTIN : 27AAAJM2219H1ZC",
+    "TURNITIN INDIA PRIVATE LIMITED  MIT ART DESIGN AND TECHNOLOGY UNIVERSITY PUNE",
+    "Code  Price(Rs)  Amount(Rs)  State Cess + Cess  charges",
+    "Tax'ble Amt  CGST Amt  SGST Amt  IGST Amt  CESS Amt  State CESS  Discount  Other Charges  Round off Amt  Tot Inv. Amt",
+    "36486.04  0.00  0.00  6567.49  0.00  0.00  0.00  0.00  0.00  43053.53",
+  ];
+  const e = parseInvoice(
+    text.map((text, i) => ({
+      text,
+      id: `p1-s${i}`,
+      page: 1,
+      box: [0, i * 10, 800, 10],
+    })),
+    [{ width: 842, height: 1190 }],
+    "native",
+    [],
+  );
+  assert.equal(e.fields.vendor.value, "TURNITIN INDIA PRIVATE LIMITED");
+  assert.equal(
+    e.fields.entity.value,
+    "MIT ART DESIGN AND TECHNOLOGY UNIVERSITY PUNE",
+  );
+  assert.equal(e.fields.reference.value, "IN-TIN-02619");
+  assert.equal(e.fields.currency.value, "INR");
+  assert.equal(e.fields.net.value, "36486.04");
+  assert.equal(e.fields.tax.value, "6567.49");
+  assert.equal(e.fields.total.value, "43053.53");
+  assert.equal(e.fields.po.value, "");
+});
 function northstar(amount = "3100.00", ref = "NS-0419") {
   const e = extraction({
     vendor: "Northstar Studio",
