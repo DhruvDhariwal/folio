@@ -15,10 +15,12 @@ export function PDFViewer({
   id,
   extraction,
   source,
+  request,
 }: {
   id: string;
   extraction?: Extraction;
   source?: SourceLine;
+  request?: (path: string) => Promise<Response>;
 }) {
   const holder = useRef<HTMLDivElement>(null),
     canvas = useRef<HTMLCanvasElement>(null);
@@ -26,38 +28,53 @@ export function PDFViewer({
     [page, setPage] = useState(1),
     [width, setWidth] = useState(500),
     [error, setError] = useState(""),
+    [originalUrl, setOriginalUrl] = useState<string>(),
     [rendered, setRendered] = useState(false),
     [ratio, setRatio] = useState(1.414),
     [zoom, setZoom] = useState(1);
   useEffect(() => {
     let disposed = false;
     let document: PDFDocumentProxy | undefined;
+    let blobUrl: string | undefined;
     setPdf(undefined);
+    setOriginalUrl(undefined);
     setError("");
     setRendered(false);
     setPage(1);
-    pdfLibrary()
-      .then(
-        (lib) =>
-          lib.getDocument({ url: `/api/documents/${id}`, useSystemFonts: true })
-            .promise,
-      )
-      .then((p) => {
-        document = p;
-        if (disposed) void p.destroy();
-        else setPdf(p);
-      })
-      .catch((e) => {
-        if (!disposed)
-          setError(
-            e instanceof Error ? e.message : "The PDF preview could not load.",
-          );
-      });
+
+    async function load() {
+      const lib = await pdfLibrary();
+      const path = `/api/documents/${id}`;
+      if (request) {
+        const response = await request(path);
+        if (!response.ok)
+          throw new Error("The original PDF could not be loaded.");
+        const blob = await response.blob();
+        if (disposed) return;
+        blobUrl = URL.createObjectURL(blob);
+        setOriginalUrl(blobUrl);
+      }
+      if (disposed) return;
+      document = await lib.getDocument({
+        url: blobUrl ?? path,
+        useSystemFonts: true,
+      }).promise;
+      if (disposed) void document.destroy();
+      else setPdf(document);
+    }
+
+    load().catch((e) => {
+      if (!disposed)
+        setError(
+          e instanceof Error ? e.message : "The PDF preview could not load.",
+        );
+    });
     return () => {
       disposed = true;
       if (document) void document.destroy();
+      if (blobUrl) URL.revokeObjectURL(blobUrl);
     };
-  }, [id]);
+  }, [id, request]);
   useEffect(() => {
     if (!holder.current) return;
     const o = new ResizeObserver((entries) =>
@@ -119,7 +136,7 @@ export function PDFViewer({
           <FileText size={15} /> Source document
         </span>
         <a
-          href={`/api/documents/${id}`}
+          href={request ? originalUrl : `/api/documents/${id}`}
           target="_blank"
           rel="noreferrer"
           title="Open original PDF"

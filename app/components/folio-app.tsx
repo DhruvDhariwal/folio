@@ -99,13 +99,6 @@ const SAMPLES = [
 ];
 type View = "queue" | "history" | "procurement";
 type Dialog = { title: string; content: ReactNode };
-async function api(path: string, options?: RequestInit) {
-  const res = await fetch(path, options);
-  const data = (await res.json()) as Record<string, unknown>;
-  if (!res.ok)
-    throw new Error(String(data.error || "The request could not finish."));
-  return data;
-}
 function download(name: string, value: unknown) {
   const url = URL.createObjectURL(
     new Blob([JSON.stringify(value, null, 2)], { type: "application/json" }),
@@ -138,7 +131,20 @@ function Badge({ outcome, voided }: { outcome?: string; voided?: boolean }) {
   );
 }
 
-export default function FolioApp() {
+export default function FolioApp({
+  request = fetch,
+  browserWorkspace = false,
+}: {
+  request?: (path: string, options?: RequestInit) => Promise<Response>;
+  browserWorkspace?: boolean;
+} = {}) {
+  async function api(path: string, options?: RequestInit) {
+    const res = await request(path, options);
+    const data = (await res.json()) as Record<string, unknown>;
+    if (!res.ok)
+      throw new Error(String(data.error || "The request could not finish."));
+    return data;
+  }
   const [ws, setWs] = useState<Workspace>(),
     [user, setUser] = useState<{ name: string; email: string }>(),
     [view, setView] = useState<View>("queue"),
@@ -269,7 +275,7 @@ export default function FolioApp() {
     setProgress("Opening PDF");
     setError("");
     try {
-      const response = await fetch(`/api/documents/${id}`);
+      const response = await request(`/api/documents/${id}`);
       if (!response.ok)
         throw new Error("The original PDF could not be loaded.");
       const extracted = await extractPDF(
@@ -643,7 +649,7 @@ export default function FolioApp() {
             <div role="alert" className="message error">
               <CircleAlert size={18} />
               <span>{error}</span>
-              {error.includes("Sign in") && (
+              {!browserWorkspace && error.includes("Sign in") && (
                 <a href="/signin-with-chatgpt?return_to=/" target="_top">
                   Sign in
                 </a>
@@ -1109,6 +1115,7 @@ export default function FolioApp() {
                   )}
                 </div>
                 <PDFViewer
+                  request={browserWorkspace ? request : undefined}
                   id={current.id}
                   extraction={invoice}
                   source={source}
@@ -1378,7 +1385,9 @@ export default function FolioApp() {
                       <span>
                         Text and scans are read in your browser.
                         <br />
-                        Documents stay in your private workspace.
+                        {browserWorkspace
+                          ? "PDFs and history stay in this browser."
+                          : "Documents stay in your private workspace."}
                       </span>
                     </div>
                   </div>
@@ -1612,7 +1621,10 @@ export default function FolioApp() {
               )}
               <div className="workspace-foot">
                 <span>
-                  <LockKeyhole size={13} /> Private invoice workspace
+                  <LockKeyhole size={13} />{" "}
+                  {browserWorkspace
+                    ? "Saved in this browser"
+                    : "Private invoice workspace"}
                 </span>
                 <span>PDFs and scans · Source-linked decisions</span>
                 <button className="text-link" onClick={policy}>

@@ -2,15 +2,13 @@ import { env } from "cloudflare:workers";
 import { getChatGPTUser } from "../../app/chatgpt-auth";
 import { initialWorkspace } from "./seed";
 import type { Workspace } from "./types";
+import {
+  AppError,
+  createWorkspaceApi,
+  encodeWorkspace,
+  type OriginalDocument,
+} from "./workspace-api";
 
-export class AppError extends Error {
-  constructor(
-    message: string,
-    public status = 400,
-  ) {
-    super(message);
-  }
-}
 export async function identity() {
   const user = await getChatGPTUser();
   if (!user) throw new AppError("Sign in to open your invoice workspace.", 401);
@@ -24,7 +22,7 @@ export function bucket() {
   if (!env.BUCKET) throw new AppError("Document storage is unavailable.", 503);
   return env.BUCKET;
 }
-export async function readWorkspace(owner: string) {
+async function readWorkspace(owner: string) {
   const db = database();
   await db
     .prepare(
@@ -41,19 +39,19 @@ export async function readWorkspace(owner: string) {
 }
 // The entire aggregate (claims, capacity and new receipt) advances in one atomic
 // UPDATE. A concurrent writer makes the predicate fail and forces reevaluation.
-export async function mutate<T>(
+async function mutate<T>(
   owner: string,
   fn: (s: Workspace) => T,
+  original?: OriginalDocument,
 ): Promise<{ state: Workspace; result: T }> {
+  if (original)
+    await bucket().put(original.key, original.bytes, {
+      httpMetadata: { contentType: "application/pdf" },
+    });
   for (let attempt = 0; attempt < 12; attempt++) {
     const { revision, state } = await readWorkspace(owner);
     const result = fn(state);
-    const encoded = JSON.stringify(state);
-    if (new TextEncoder().encode(encoded).length > 1500000)
-      throw new AppError(
-        "This prototype workspace has reached its history limit. Export the receipts before starting a new workspace.",
-        413,
-      );
+    const encoded = encodeWorkspace(state);
     const saved = await database()
       .prepare(
         "UPDATE workspaces SET state=?,revision=revision+1 WHERE owner=? AND revision=?",
@@ -67,18 +65,14 @@ export async function mutate<T>(
     409,
   );
 }
-export function jsonError(error: unknown) {
-  if (error instanceof AppError)
-    return Response.json({ error: error.message }, { status: error.status });
-  console.error(
-    "Folio request failed",
-    error instanceof Error ? error.message : "Unknown failure",
-  );
-  return Response.json(
-    {
-      error:
-        "The operation could not finish. Your saved records are still available. Please retry.",
+
+export const workspaceApi = createWorkspaceApi(
+  {
+    readWorkspace,
+    mutate,
+    async readDocument(key) {
+      return (await bucket().get(key))?.body ?? null;
     },
-    { status: 500 },
-  );
-}
+  },
+  identity,
+);

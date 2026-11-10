@@ -14,7 +14,13 @@ node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js d1
 npm run dev
 ```
 
-Apply the migration only to a new local database, not again to an initialized one. Open the printed local URL. For local development, use `/signin-with-chatgpt?return_to=/`; the Sites starter provides a clearly scoped local test identity. Hosted access is private and uses the owner's real ChatGPT sign-in.
+Apply the migration only to a new local database, not again to an initialized one. Open the printed local URL. For local development, use `/signin-with-chatgpt?return_to=/`; the Sites starter provides a clearly scoped local test identity. The hosted Sites workspace uses ChatGPT sign-in.
+
+## Vercel demo
+
+Run `npm ci` and `npm run build:vercel` to produce the static site in `dist-vercel`. For local browser testing, serve the output with `npx vite preview --config vite.config.vercel.ts`. Vercel uses `vercel.json` to build the same output.
+
+The Vercel demo uses the same PDF readers, procurement checks, and invoice review actions as the Sites workspace. It runs without sign-in. Uploaded originals, procurement imports, and decisions are stored together in IndexedDB on the current browser and origin. They survive reloads but do not sync across browsers or devices. Clearing site data removes them, so export decision receipts before clearing the workspace. The review actor is labeled Local reviewer.
 
 ## What works
 
@@ -91,4 +97,4 @@ Separately stated charges or discounts require review until they have an explici
 
 ## Deployment
 
-`.openai/hosting.json` preserves this Site's registered identity and declares D1 and R2 bindings. Publish with the Sites skill workflow; it pushes source, packages the built output, applies hosted schema migrations and deploys privately. No extraction API key is required. Preserve the private audience until the user explicitly requests a sharing change.
+`.openai/hosting.json` preserves this Site's registered identity and declares D1 and R2 bindings. Publish with the Sites skill workflow; it pushes source, packages the built output, applies hosted schema migrations and deploys privately. No extraction API key is required. The Sites audience is managed independently of the Vercel demo.
