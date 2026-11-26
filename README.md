@@ -1,6 +1,8 @@
 # Folio invoice workspace
 
-A working first version of Zamp PS 1: a real PDF becomes an evidence-backed invoice decision against procurement data and earlier obligations.
+Folio helps a buyer's accounts payable team check invoice PDFs against purchase orders and earlier obligations. Reviewers can inspect the original document, confirm extracted fields, and export the decision and its evidence.
+
+[Open the live demo](https://folio-invoice-decisions.vercel.app/). Choose **Try this invoice** to inspect an example sourced from a published Indian invoice. To see a purchasing control work immediately, open **Explore the control scenarios** and choose **The final invoice**. This fictional bill exceeds the remaining amount on its purchase order by $300.
 
 ## Run locally
 
